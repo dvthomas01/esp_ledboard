@@ -1,0 +1,29 @@
+# PlatformIO (build artifacts, huge)
+firmware/.pio/
+
+# Node / Expo
+app/node_modules/
+app/.expo/
+app/.eas/
+app/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Wi-Fi credentials — never commit this file (create locally; template in firmware/README.md).
+firmware/include/wifi_config.h
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Local-only: Cursor / agent memory and JSON schemas (not published to GitHub)
+memory-bank/
+schemas/
