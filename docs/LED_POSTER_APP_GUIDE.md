@@ -299,7 +299,7 @@ Expo Go loads your JavaScript from **Metro on a development machine**. A **stand
 | Action | Phone | Poster / notes |
 |--------|--------|----------------|
 | **Expo Go (dev)** | Reach Metro — same LAN as dev PC or **`expo start --tunnel`** | — |
-| **Program STA Wi‑Fi on the MCU** | — | Create **`firmware/include/wifi_config.h`** locally (**gitignored**). Full template + fields: **`firmware/README.md`**. Set **`WIFI_SSID`**, **`WIFI_PASSWORD`**, **`HTTP_PORT`**; optional **`WIFI_LOCK_BSSID`**. Flash over **USB** (`pio run -t upload`). There is **no** soft‑AP onboarding in current firmware — network changes require editing that file and reflashing. |
+| **Program STA Wi‑Fi on the MCU** | — | Create **`firmware/include/wifi_config.h`** locally (**gitignored**). Full template + fields: **`firmware/README.md`**. Set **`WIFI_SSID`**, **`WIFI_PASSWORD`**, and **`HTTP_PORT`**. Flash over **USB** (`pio run -t upload`). There is **no** soft‑AP onboarding in current firmware — network changes require editing that file and reflashing. |
 | **Poster control / uploads** | Same **Wi‑Fi or routed LAN** as the ESP | **ESP Base URL** — `http://<poster-ip>`; if **`HTTP_PORT` ≠ 80**, append `:port`. **Trust:** HTTP API has **no token** — use only on a network segment you trust, or VLAN-isolate IoT traffic. |
 
 A **standalone** installable build does **not** need Metro to open the app shell, but the ESP must remain reachable per the rows above whenever you push animations or taps.

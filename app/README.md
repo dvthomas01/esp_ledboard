@@ -48,7 +48,7 @@ npx expo start --tunnel
 
 ### ESP32 Wi‑Fi (firmware — not Git tracked)
 
-Wi‑Fi is **compile-time STA only**: create **`firmware/include/wifi_config.h`** locally (ignored by `.gitignore`), using the **`firmware/README.md`** template (`WIFI_SSID`, `WIFI_PASSWORD`, optional BSSID lock, `HTTP_PORT`). Build and **`pio run -t upload`** over USB whenever you move networks—there is **no** soft‑AP / in-app onboarding in current firmware.
+Wi‑Fi is **compile-time STA only**: create **`firmware/include/wifi_config.h`** locally (ignored by `.gitignore`), using the **`firmware/README.md`** template (`WIFI_SSID`, `WIFI_PASSWORD`, `HTTP_PORT`). Build and **`pio run -t upload`** over USB whenever you move networks—there is **no** soft‑AP / in-app onboarding in current firmware.
 
 ### Phone ↔ poster
 

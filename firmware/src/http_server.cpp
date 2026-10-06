@@ -40,18 +40,9 @@ static void connectWiFi() {
     while (true) { delay(1000); }
   }
   WiFi.mode(WIFI_STA);
-  if (WIFI_LOCK_BSSID) {
-    Serial.printf("[wifi] joining SSID \"%s\" via 2.4 GHz BSSID "
-                  "%02X:%02X:%02X:%02X:%02X:%02X\n",
-                  WIFI_SSID,
-                  WIFI_STA_BSSID[0], WIFI_STA_BSSID[1], WIFI_STA_BSSID[2],
-                  WIFI_STA_BSSID[3], WIFI_STA_BSSID[4], WIFI_STA_BSSID[5]);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 0, WIFI_STA_BSSID, true);
-  } else {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("Connecting WiFi: ");
-    Serial.println(WIFI_SSID);
-  }
+  Serial.print("[wifi] connecting to SSID: ");
+  Serial.println(WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   const unsigned long kTimeoutMs = 60000;
   unsigned long t0 = millis();
   while (WiFi.status() != WL_CONNECTED) {

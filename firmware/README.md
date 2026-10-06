@@ -25,10 +25,6 @@ constexpr const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 constexpr const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 constexpr uint16_t HTTP_PORT = 80;
-
-// Optional: dual-band routers — set true and paste the 2.4 GHz BSSID from your router UI.
-constexpr bool WIFI_LOCK_BSSID = false;
-constexpr uint8_t WIFI_STA_BSSID[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 ```
 
 3. After editing, build and flash. To change networks later, edit this file again and **reflash**.
