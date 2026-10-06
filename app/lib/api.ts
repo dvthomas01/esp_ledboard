@@ -146,6 +146,70 @@ export type PostAnimationUploadOptions = {
   onFrameUploaded?: (info: { frame: number; total: number }) => void;
 };
 
+const BEGIN_TIMEOUT_MS = 15_000;
+const FRAME_TIMEOUT_MS = 30_000;
+/** Per-request tries before giving up on a frame. */
+const REQUEST_ATTEMPTS = 4;
+/** Full begin→frames→commit rounds, used when the frame cursor desyncs. */
+const UPLOAD_ATTEMPTS = 2;
+
+type UploadOutcome =
+  | { kind: 'ok'; data?: unknown }
+  | { kind: 'desync'; error: string; data?: unknown }
+  | { kind: 'fatal'; error: string; data?: unknown };
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function messageFrom(data: unknown): string | undefined {
+  if (typeof data === 'object' && data !== null && 'message' in data) {
+    return String((data as Record<string, unknown>).message);
+  }
+  return undefined;
+}
+
+function numberFrom(data: unknown, key: string): number | undefined {
+  if (typeof data === 'object' && data !== null && key in data) {
+    const v = (data as Record<string, unknown>)[key];
+    if (typeof v === 'number') return v;
+  }
+  return undefined;
+}
+
+/**
+ * POST a JSON body, retrying transient failures with linear backoff.
+ *
+ * Dropped connections and timeouts are retried. A 4xx/5xx reply means the
+ * firmware rejected the request, so retrying cannot help — except 503, which
+ * the WebServer emits when it is briefly busy.
+ */
+async function postWithRetry(
+  url: string,
+  body: string,
+  timeoutMs: number
+): Promise<{ ok: boolean; status?: number; data?: unknown; error?: string }> {
+  let lastError = 'request failed';
+  for (let tries = 1; tries <= REQUEST_ATTEMPTS; tries++) {
+    try {
+      const res = await fetchWithTimeout(
+        url,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+        timeoutMs
+      );
+      const data = await parseResponse(res);
+      if (res.ok) return { ok: true, status: res.status, data };
+      if (res.status !== 503) {
+        const detail = messageFrom(data) ?? `HTTP ${res.status}`;
+        return { ok: false, status: res.status, data, error: detail };
+      }
+      lastError = `HTTP ${res.status}`;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+    }
+    if (tries < REQUEST_ATTEMPTS) await delay(400 * tries);
+  }
+  return { ok: false, error: `${lastError} (after ${REQUEST_ATTEMPTS} attempts)` };
+}
+
 function animationPayloadFromSource(
   source: string | AnimationData
 ): { meta: unknown; config: unknown; frames: Frame[] } | { error: string } {
@@ -209,81 +273,51 @@ export async function postAnimationJson(
       body: '{}',
     }).catch(() => {});
 
-  // ── Step 1: begin ────────────────────────────────────────────────────────
-  const beginBody = JSON.stringify({
-    meta,
-    config,
-    frame_count: frames.length,
-  });
-  try {
-    const res = await fetchWithTimeout(`${base}/animation/begin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: beginBody,
-    });
-    if (!res.ok) {
-      const d = await parseResponse(res);
-      // 507 = ESP32 out of memory for the frame buffer.
-      // The firmware message contains the max supported frame count.
-      if (res.status === 507) {
-        const msg =
-          typeof d === 'object' && d !== null && 'message' in d
-            ? String((d as Record<string, unknown>).message)
-            : 'Device out of memory';
-        return {
-          ok: false,
-          error: `Device memory full — reduce frame count. ${msg}`,
-          data: d,
-        };
+  // Congested 2.4 GHz networks drop packets, and one lost frame used to fail the
+  // whole upload. Each step is retried; a frame whose reply is lost after the
+  // firmware accepted it desyncs the cursor, which restarts the upload.
+  const attempt = async (): Promise<UploadOutcome> => {
+    const beginBody = JSON.stringify({ meta, config, frame_count: frames.length });
+    const begun = await postWithRetry(`${base}/animation/begin`, beginBody, BEGIN_TIMEOUT_MS);
+    if (!begun.ok) {
+      // 507 = ESP32 could not allocate the frame buffers; message carries the max.
+      if (begun.status === 507) {
+        const msg = messageFrom(begun.data) ?? 'Device out of memory';
+        return { kind: 'fatal', error: `Device memory full — reduce frame count. ${msg}`, data: begun.data };
       }
-      return { ok: false, error: `begin failed (HTTP ${res.status})`, data: d };
+      return { kind: 'fatal', error: begun.error ?? 'begin failed', data: begun.data };
     }
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
 
-  // ── Step 2: upload frames one at a time (compact JSON — no indentation) ──
-  const frameTimeoutMs = 20_000;
-  for (let i = 0; i < frames.length; i++) {
-    const frameBody = JSON.stringify(frames[i]); // compact, ~22 KB for 32×48
-    try {
-      const res = await fetchWithTimeout(
-        `${base}/animation/frame`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: frameBody,
-        },
-        frameTimeoutMs
-      );
-      if (!res.ok) {
-        const d = await parseResponse(res);
-        await abort();
-        return { ok: false, error: `frame ${i + 1} failed (HTTP ${res.status})`, data: d };
+    for (let i = 0; i < frames.length; i++) {
+      const frameBody = JSON.stringify(frames[i]); // compact, ~14 KB for 32×48
+      const sent = await postWithRetry(`${base}/animation/frame`, frameBody, FRAME_TIMEOUT_MS);
+      if (!sent.ok) {
+        return { kind: 'fatal', error: sent.error ?? `frame ${i + 1} failed`, data: sent.data };
+      }
+      // The firmware appends to framePtrs[receivedFrames], so its count is the
+      // source of truth. Anything but i+1 means a duplicate landed.
+      const received = numberFrom(sent.data, 'frames_received');
+      if (received !== undefined && received !== i + 1) {
+        return { kind: 'desync', error: `frame cursor desync at ${i + 1} (device has ${received})` };
       }
       options?.onFrameUploaded?.({ frame: i + 1, total: frames.length });
-    } catch (e) {
-      await abort();
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-  }
 
-  // ── Step 3: commit ───────────────────────────────────────────────────────
-  try {
-    const res = await fetchWithTimeout(`${base}/animation/commit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    const data = await parseResponse(res);
-    if (!res.ok) {
-      await abort();
-      return { ok: false, error: `commit failed (HTTP ${res.status})`, data };
+    const committed = await postWithRetry(`${base}/animation/commit`, '{}', BEGIN_TIMEOUT_MS);
+    if (!committed.ok) {
+      return { kind: 'fatal', error: committed.error ?? 'commit failed', data: committed.data };
     }
-    return { ok: true, data };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { kind: 'ok', data: committed.data };
+  };
+
+  let last: UploadOutcome = { kind: 'fatal', error: 'upload not attempted' };
+  for (let round = 0; round < UPLOAD_ATTEMPTS; round++) {
+    last = await attempt();
+    if (last.kind === 'ok') return { ok: true, data: last.data };
+    await abort();
+    if (last.kind === 'fatal') break;
   }
+  return { ok: false, error: last.error, data: last.data };
 }
 
 export async function postProfileJson(
