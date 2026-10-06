@@ -39,6 +39,9 @@
     },
     "runtimeVersion": {
       "policy": "appVersion"
-    }
+    },
+    "plugins": [
+      "expo-status-bar"
+    ]
   }
 }
